@@ -7,7 +7,7 @@ var child  = require('child_process'),
     path   = require('path'),
     sys    = require('sys'),
     url    = require('url');
-    
+
 ////////////////////////////////////////////////////////////////////////////////
 // CONFIGURATION
 ////////////////////////////////////////////////////////////////////////////////
@@ -17,7 +17,7 @@ var PORT = 8747; // -> "upgr"-ade
 // ARGUMENT PARSING
 ////////////////////////////////////////////////////////////////////////////////
 if (process.argv.length <= 2) {
-  console.error('usage: ' + path.basename(process.argv[1]) + ' <FILE> ...');
+  console.error('Usage: ' + path.basename(process.argv[1]) + ' <FILE> ...');
   process.exit(1);
 }
 var paths = process.argv.slice(2);
@@ -25,49 +25,62 @@ var paths = process.argv.slice(2);
 ////////////////////////////////////////////////////////////////////////////////
 // MAIN
 ////////////////////////////////////////////////////////////////////////////////
-// First resolve the ip address
+// First resolve the IP address
 dns.lookup(os.hostname(), function (err, hostname) {
   if (err) { console.error(err); process.exit(1); }
-
+  
   var streams = [];
-
+  
   // Initiate tail-f streams
   paths.forEach(function (p) {
     var buf  = [];
     var file = path.basename(p);
     var tail = child.spawn('tail', ['-n', '+0', '-F', p]);
     
+    streams.push({'name': file, 'buf': buf, 'output': tail.stdout});
     // Fill up buffer to catch up from the past a client might have missed
     tail.stdout.on('data', function (data) { buf.push(data) });
-    // Inform about tail errors
-    tail.stderr.on('data', function (data) { console.error(data) });
-    // Shutdown server if tail stopped
-    tail.on('exit', function (code) { process.exit(code) });
-    
-    streams.push({'name': file, 'buf': buf, 'tail': tail});
+    tail.stderr.on('data', function (data) { console.error(data.trim()) });
+    tail.on('exit', function (code) {
+      // Remove stream after a tail crashed
+      for (var i = streams.length; i > 0; i--)
+        streams[i] && streams[i].name === file && streams.splice(i, 1);
+    });
   });
-
+  
   // Start server
   var server = http.createServer(function (req, res) {
     // Strip url path
-    var path = url.parse(req.url).pathname.substring(1);    
+    var path = url.parse(req.url).pathname.substring(1);
     // Find a tailed file stream given url path
     var found = false;
-    streams.forEach(function(stream) {
-      if (stream.name === path) {
-        found = true;
-        res.writeHead(200, {'Content-Type': 'text/plain'});
-        // Catch up from the past
-        stream.buf.forEach(function (b) { res.write(b) });
-        // Continously push new tailed output
-        stream.tail.stdout.pipe(res);
-      }
+    streams.forEach(function (stream) {
+      if (stream.name !== path) return; else found = true;
+      res.writeHead(200, {'Content-Type': 'text/plain'});
+      // Catch up from the past and stream new tailed output
+      stream.buf.forEach(function (b) { res.write(b.stripEscapeChars()) });
+      stream.output.on('data', function (b) { res.write(b.stripEscapeChars()) });
     });
     // No stream found
-    if (!found) { res.writeHead(404); res.end(); }
+    if (!found) { res.writeHead(404); res.end() }
   }).listen(PORT);
-
+  
   streams.forEach(function(stream) {
-    console.info('Stream at http://%s:%d/%s', hostname, PORT, stream.name);
+    console.info('http://%s:%d/%s', hostname, PORT, stream.name);
   });
 });
+
+////////////////////////////////////////////////////////////////////////////////
+// EXTENSIONS
+////////////////////////////////////////////////////////////////////////////////
+if (!Buffer.prototype.trim) {
+  Buffer.prototype.trim = function() {
+    return this.toString().replace(/^\s+|\s+$/g, '');
+  }
+}
+
+if (!Buffer.prototype.stripEscapeChars) {
+  Buffer.prototype.stripEscapeChars = function() {
+    return this.toString().replace(/\x1b\[[0-9;]+m/g, '');
+  }
+}
