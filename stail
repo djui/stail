@@ -2,6 +2,7 @@
 
 var child  = require('child_process'),
     dns    = require('dns'),
+    fs     = require('fs'),
     http   = require('http'),
     os     = require('os'),
     path   = require('path'),
@@ -11,7 +12,8 @@ var child  = require('child_process'),
 ////////////////////////////////////////////////////////////////////////////////
 // CONFIGURATION
 ////////////////////////////////////////////////////////////////////////////////
-var PORT = 8747; // -> "upgr"-ade
+var PORT     = 8747; // -> "upgr"-ade
+var HOSTNAME = os.hostname();
 
 ////////////////////////////////////////////////////////////////////////////////
 // ARGUMENT PARSING
@@ -26,25 +28,19 @@ var paths = process.argv.slice(2);
 // MAIN
 ////////////////////////////////////////////////////////////////////////////////
 // First resolve the IP address
-dns.lookup(os.hostname(), function (err, hostname) {
-  if (err) { console.error(err); process.exit(1); }
-  
+dns.lookup(HOSTNAME, function (_err, hostname) {
   var streams = [];
   
   // Initiate tail-f streams
   paths.forEach(function (p) {
-    var buf  = [];
     var file = path.basename(p);
-    var tail = child.spawn('tail', ['-n', '+0', '-F', p]);
+    var tail = child.spawn('tail', ['-n', '0', '-F', p]);
     
-    streams.push({'name': file, 'buf': buf, 'output': tail.stdout});
-    // Fill up buffer to catch up from the past a client might have missed
-    tail.stdout.on('data', function (data) { buf.push(data) });
+    streams.push({'name': file, 'path': p, 'output': tail.stdout});
     tail.stderr.on('data', function (data) { console.error(data.trim()) });
     tail.on('exit', function (code) {
       // Remove stream after a tail crashed
-      for (var i = streams.length; i > 0; i--)
-        streams[i] && streams[i].name === file && streams.splice(i, 1);
+      streams.forEach(function (s, i) { s.name === file && streams.splice(i, 1) })
     });
   });
   
@@ -57,18 +53,24 @@ dns.lookup(os.hostname(), function (err, hostname) {
     streams.forEach(function (stream) {
       if (stream.name !== path) return; else found = true;
       res.writeHead(200, {'Content-Type': 'text/plain'});
-      // Catch up from the past and stream new tailed output
-      stream.buf.forEach(function (b) { res.write(b.stripEscapeChars()) });
-      stream.output.on('data', function (b) { res.write(b.stripEscapeChars()) });
+      // Try catching up from the past and stream new tailed output
+      fs.readFile(stream.path, function (err, content) {
+        if (err) return notFound(res);
+        reply(res, content);
+        stream.output.on('data', function (data) { reply(res, data) });
+      });
     });
     // No stream found
-    if (!found) { res.writeHead(404); res.end() }
+    if (!found) notFound(res)
   }).listen(PORT);
   
   streams.forEach(function(stream) {
-    console.info('http://%s:%d/%s', hostname, PORT, stream.name);
+    console.info('http://%s:%d/%s', hostname || HOSTNAME, PORT, stream.name);
   });
 });
+
+function reply(res, data) { res.write(data.stripEscapeChars()) }
+function notFound(res) { res.writeHead(404); res.end() }
 
 ////////////////////////////////////////////////////////////////////////////////
 // EXTENSIONS
