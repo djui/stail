@@ -77,7 +77,11 @@ dns.lookup(host, function (_err, hostname) {
 function reply(res, data) { res.write(data.stripEscapeChars()) }
 function notFound(res) { res.writeHead(404); res.end() }
 function usage() {
-  console.error('Usage: ' + path.basename(args.argv[1]) + ' <FILE> ...');
+  console.info('Usage: ' + path.basename(process.argv[1]) + ' [options...] <file> ...');
+  console.info('');
+  console.info('Options:');
+  console.info('   -n          Only show new file changes');
+  console.info('   -p <port>   Set port for http server');
   process.exit(1);
 }
 ////////////////////////////////////////////////////////////////////////////////
