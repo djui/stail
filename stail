@@ -10,25 +10,30 @@ var child  = require('child_process'),
     url    = require('url');
 
 ////////////////////////////////////////////////////////////////////////////////
-// CONFIGURATION
+// ARGUMENTS
 ////////////////////////////////////////////////////////////////////////////////
-var PORT     = 8747; // -> "upgr"-ade
-var HOSTNAME = os.hostname();
+var port    = process.env.NODE_PORT || 8747; // -> "upgr"-ade
+var host    = os.hostname();
+var catchup = true;
+var args    = process.argv.slice(2);
+var paths   = [];
 
-////////////////////////////////////////////////////////////////////////////////
-// ARGUMENT PARSING
-////////////////////////////////////////////////////////////////////////////////
-if (process.argv.length <= 2) {
-  console.error('Usage: ' + path.basename(process.argv[1]) + ' <FILE> ...');
-  process.exit(1);
+while (args.length) {
+  var arg = args.shift();
+  switch (arg) {
+    case '-n': catchup = true; break;
+    case '-p': port = args.shift(); break;
+    default: paths.push(arg); break;
+  }
 }
-var paths = process.argv.slice(2);
+
+paths.length || usage();
 
 ////////////////////////////////////////////////////////////////////////////////
 // MAIN
 ////////////////////////////////////////////////////////////////////////////////
 // First resolve the IP address
-dns.lookup(HOSTNAME, function (_err, hostname) {
+dns.lookup(host, function (_err, hostname) {
   var streams = [];
   
   // Initiate tail-f streams
@@ -54,24 +59,27 @@ dns.lookup(HOSTNAME, function (_err, hostname) {
       if (stream.name !== path) return; else found = true;
       res.writeHead(200, {'Content-Type': 'text/plain'});
       // Try catching up from the past and stream new tailed output
-      fs.readFile(stream.path, function (err, content) {
+      if (catchup) fs.readFile(stream.path, function (err, content) {
         if (err) return notFound(res);
         reply(res, content);
-        stream.output.on('data', function (data) { reply(res, data) });
       });
+      stream.output.on('data', function (data) { reply(res, data) });
     });
     // No stream found
     if (!found) notFound(res)
-  }).listen(PORT);
+  }).listen(port);
   
   streams.forEach(function(stream) {
-    console.info('http://%s:%d/%s', hostname || HOSTNAME, PORT, stream.name);
+    console.info('http://%s:%d/%s', hostname || host, port, stream.name);
   });
 });
 
 function reply(res, data) { res.write(data.stripEscapeChars()) }
 function notFound(res) { res.writeHead(404); res.end() }
-
+function usage() {
+  console.error('Usage: ' + path.basename(args.argv[1]) + ' <FILE> ...');
+  process.exit(1);
+}
 ////////////////////////////////////////////////////////////////////////////////
 // EXTENSIONS
 ////////////////////////////////////////////////////////////////////////////////
