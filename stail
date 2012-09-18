@@ -97,6 +97,8 @@ if (!Buffer.prototype.trim) {
 
 if (!Buffer.prototype.stripEscapeChars) {
   Buffer.prototype.stripEscapeChars = function() {
-    return this.toString().replace(/\x1b\[[0-9;]+m/g, '');
+    // See: http://www.linuxselfhelp.com/howtos/Bash-Prompt/Bash-Prompt-HOWTO-6.html and
+    // https://github.com/joyent/libuv/blob/938a30589cd72f482b15df7290101ffc6e226e05/src/win/tty.c#L1336-1612
+    return this.toString().replace(/\u001b\[[0-9;?]*[A-HJKfhlmsu]/g, '');
   }
 }
