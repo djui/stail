@@ -57,7 +57,9 @@ dns.lookup(host, function (_err, hostname) {
     var found = false;
     streams.forEach(function (stream) {
       if (stream.name !== path) return; else found = true;
-      res.writeHead(200, {'Content-Type': 'text/plain'});
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset="utf-8"'
+                         , 'Content-Disposition': 'inline'
+                         });
       // Try catching up from the past and stream new tailed output
       if (catchup) fs.readFile(stream.path, function (err, content) {
         if (err) return notFound(res);
